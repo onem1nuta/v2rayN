@@ -7,6 +7,11 @@ public sealed partial class HotkeyManager
     private const int WmHotkey = 0x0312;
     private readonly Dictionary<int, List<EGlobalHotkey>> _hotkeyTriggerDic = new();
 
+    // --- FIX: Fields for generating valid IDs have been added. ---
+    private readonly Dictionary<int, int> _win32Ids = new();
+    private int _idCounter = 1;
+    // -------------------------------------------------------
+
     public bool IsPause { get; set; } = false;
 
     public event Action<bool, string>? UpdateViewEvent;
@@ -67,10 +72,20 @@ public sealed partial class HotkeyManager
             var isSuccess = false;
             var msg = string.Empty;
 
+            // --- FIX: Generate ID for Win32 (from 1 and above) ---
+            if (!_win32Ids.ContainsKey(_hotkeyCode))
+            {
+                _win32Ids[_hotkeyCode] = _idCounter++;
+            }
+            int validId = _win32Ids[_hotkeyCode];
+            // ---------------------------------------------------
+
             Application.Current?.Dispatcher.Invoke(() =>
             {
-                isSuccess = RegisterHotKey(nint.Zero, _hotkeyCode, hotkeyInfo.fsModifiers, hotkeyInfo.vKey);
+                //We register using validId, not _hotkeyCode.
+                isSuccess = RegisterHotKey(nint.Zero, validId, hotkeyInfo.fsModifiers, hotkeyInfo.vKey);
             });
+            
             foreach (var name in hotkeyInfo.Names)
             {
                 if (isSuccess)
@@ -91,11 +106,22 @@ public sealed partial class HotkeyManager
     {
         foreach (var hotkey in _hotkeyTriggerDic.Keys)
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            // --- FIX: We cancel registration using a valid ID ---
+            if (_win32Ids.TryGetValue(hotkey, out int validId))
             {
-                UnregisterHotKey(nint.Zero, hotkey);
-            });
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    UnregisterHotKey(nint.Zero, validId);
+                });
+            }
+            // --------------------------------------------------
         }
+        
+        // --- FIX: Clear the dictionaries and reset the counter. ---
+        _win32Ids.Clear();
+        _idCounter = 1;
+        // --------------------------------------------------
+        
         Init();
         Load();
     }
